@@ -2,7 +2,7 @@
 
 **简体中文** | [English](README.en.md)
 
-Pi 会话管理扩展：删除当前会话或从列表选择删除、接手未完成任务、无损压缩归档，以及按工作区恢复会话。当前版本针对 **Pi 1.4.0** 的 `@earendil-works/pi-coding-agent` API 开发和验证。
+Pi 会话管理扩展：删除当前会话或从列表选择删除、接手未完成任务、无损压缩归档，以及按工作区恢复会话。当前版本面向 **Pi >=1.5.0** 的 `@earendil-works/pi-coding-agent` API，开发依赖固定 **1.5.2**；已验证 **1.5.0 / 1.5.2**，并保留 **1.4.0** 向后兼容。
 
 ## 安装
 
@@ -101,7 +101,7 @@ pi --no-extensions -e /absolute/path/pi-session-manager/src/index.ts
 
 ### Pi 规则文件
 
-Pi 1.4.0 的普通上下文文件按以下顺序收集：**agent 目录 → 从文件系统根目录到当前工作目录的各级祖先 → 当前工作目录**。同一目录只选第一个可读取的候选文件，优先级为：
+Pi 1.5.0 / 1.5.2 的普通上下文文件按以下顺序收集：**agent 目录 → 从文件系统根目录到当前工作目录的各级祖先 → 当前工作目录**。同一目录只选第一个可读取的候选文件，优先级为：
 
 ```text
 AGENTS.override.md > AGENTS.md > AGENTS.MD > CLAUDE.md > CLAUDE.MD
@@ -197,7 +197,7 @@ AGENTS.override.md > AGENTS.md > AGENTS.MD > CLAUDE.md > CLAUDE.MD
 
 | 项目 | 支持范围 |
 | --- | --- |
-| Pi API | 已在 `@earendil-works/pi-coding-agent` **1.4.0** 验证，使用 `withSession`、`buildSessionProjection` 等 API。后续版本需保留相应 API，未承诺全部兼容。 |
+| Pi API | 面向 **>=1.5.0**；已在 **1.5.0、1.5.2、1.4.0** 验证，使用 `withSession`、`buildSessionProjection` 等 API。开发依赖固定 1.5.2 不限制运行时补丁版本；未来宿主仍须保留相应 API，不承诺未经验证的版本全部兼容。 |
 | 旧版 Pi | 不支持旧的 `@mariozechner/pi-coding-agent` API；没有兼容适配层。 |
 | Node.js | **22.19+**；Pi 直接加载 TypeScript，运行时仅依赖 Node 标准库和宿主 SDK。 |
 | TUI | 支持全部四个命令。 |
@@ -227,9 +227,9 @@ npm run check
 node --test tests/*.test.ts
 ```
 
-本地验证覆盖存储往返、失败与取消、模拟模型交接、列表删除/归档的参数、范围与连续操作，以及真实 Pi SDK 运行时的入口加载、切换、重载与跨工作区恢复；不操作个人真实会话，也不调用真实模型。这不是完整平台、RPC 或真实模型端到端验证。
+上述类型检查及 44 项本地回归已分别在 Pi **1.5.0、1.5.2、1.4.0** 的隔离依赖目录通过。本地验证覆盖存储往返、失败与取消、模拟模型交接、列表删除/归档的参数、范围与连续操作，以及真实 Pi SDK 运行时的入口加载、切换、重载与跨工作区恢复；不操作个人真实会话，也不调用真实模型。这不是完整平台、RPC 或真实模型端到端验证。
 
-参考 Pi 官方文档：[扩展](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)、[包管理](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)、[配置](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/configuration.md)、[安全与项目信任](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md)。官方最新文档可能与 1.4.0 不同。
+参考 Pi 官方文档：[扩展](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)、[包管理](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)、[配置](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/configuration.md)、[安全与项目信任](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md)。官方最新文档可能与已验证版本不同，应以对应宿主版本的文档与类型声明为准。
 
 ## 许可证
 

@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-A Pi extension for deleting the current session or selecting sessions to delete from a list, continuing unfinished work in a new session, losslessly archiving sessions, and restoring them by workspace. Developed and verified against **Pi 1.4.0** and its `@earendil-works/pi-coding-agent` API.
+A Pi extension for deleting the current session or selecting sessions to delete from a list, continuing unfinished work in a new session, losslessly archiving sessions, and restoring them by workspace. Targets **Pi >=1.5.0** and its `@earendil-works/pi-coding-agent` API, with development dependencies pinned to **1.5.2**. Verified on **1.5.0 / 1.5.2**, with **1.4.0** backward compatibility retained.
 
 ## Installation
 
@@ -101,7 +101,7 @@ The summarization prompt for `/s-new-continue` is built into `src/handoff.ts` an
 
 ### Pi rule files
 
-Pi 1.4.0 collects ordinary context files in this order: **agent directory → ancestors from the filesystem root toward the working directory → current working directory**. Within each directory, it selects the first readable candidate in this order:
+Pi 1.5.0 / 1.5.2 collects ordinary context files in this order: **agent directory → ancestors from the filesystem root toward the working directory → current working directory**. Within each directory, it selects the first readable candidate in this order:
 
 ```text
 AGENTS.override.md > AGENTS.md > AGENTS.MD > CLAUDE.md > CLAUDE.MD
@@ -197,7 +197,7 @@ Each gzip bundle contains a format version, archive time, original session path,
 
 | Area | Scope |
 | --- | --- |
-| Pi API | Verified with `@earendil-works/pi-coding-agent` **1.4.0**, using APIs including `withSession` and `buildSessionProjection`. Later versions must retain those APIs; compatibility with every later version is not guaranteed. |
+| Pi API | Targets **>=1.5.0**; verified on **1.5.0, 1.5.2, and 1.4.0**, using APIs including `withSession` and `buildSessionProjection`. The 1.5.2 development pin does not restrict runtime patch versions. Future hosts must retain these APIs; untested versions are not guaranteed compatible. |
 | Legacy Pi | The old `@mariozechner/pi-coding-agent` API is not supported; no compatibility adapter is included. |
 | Node.js | **22.19+**. Pi loads TypeScript directly; runtime dependencies are Node's standard library and the host SDK. |
 | TUI | All four commands are supported. |
@@ -227,9 +227,9 @@ Local verification files live in Git-ignored `tests/` and are excluded from comm
 node --test tests/*.test.ts
 ```
 
-Local checks cover storage round trips, failure and cancellation, simulated model handoffs, list deletion/archiving arguments, scope, and repeated operations, and real Pi SDK runtime entry loading, session switching, reloading, and cross-workspace restoration. They neither modify personal sessions nor call a real model. This is not complete platform, RPC, or real-model end-to-end verification.
+Type checks and 44 local regressions pass in isolated dependency trees for Pi **1.5.0, 1.5.2, and 1.4.0**. Local checks cover storage round trips, failure and cancellation, simulated model handoffs, list deletion/archiving arguments, scope, and repeated operations, and real Pi SDK runtime entry loading, session switching, reloading, and cross-workspace restoration. They neither modify personal sessions nor call a real model. This is not complete platform, RPC, or real-model end-to-end verification.
 
-Pi references: [Extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), [Packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md), [Configuration](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/configuration.md), and [Security and project trust](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md). Current upstream documentation may differ from version 1.4.0.
+Pi references: [Extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), [Packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md), [Configuration](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/configuration.md), and [Security and project trust](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md). Current upstream documentation may differ from the verified versions; use the documentation and type declarations shipped with the target host.
 
 ## License
 
