@@ -5,3 +5,4 @@ tests/
 .test-artifacts/
 *.test.*
 *.spec.*
+.DS_Store
