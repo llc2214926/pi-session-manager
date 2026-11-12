@@ -1,0 +1,7 @@
+node_modules/
+*.tgz
+# 本地验证代码不进入 Git 提交或发布包。
+tests/
+.test-artifacts/
+*.test.*
+*.spec.*

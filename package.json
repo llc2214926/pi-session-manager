@@ -1,0 +1,18 @@
+{
+  "name": "pi-session-manager",
+  "version": "0.1.0",
+  "description": "Pi 会话删除、任务续接与无损归档恢复",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-package"],
+  "files": ["src", "README.md", "README.en.md", "LICENSE"],
+  "pi": { "extensions": ["./src/index.ts"] },
+  "engines": { "node": ">=22.19.0" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "scripts": { "check": "tsc --noEmit" }
+}
