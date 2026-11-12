@@ -1,10 +1,11 @@
 import { unlinkSync } from "node:fs";
+import { resolve } from "node:path";
 import {
-  type ExtensionAPI, type ExtensionCommandContext,
+  SessionManager, type ExtensionAPI, type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { continueSession } from "./handoff.ts";
 import {
-  errorText, isMissing, listArchives, prepareRestore, readRegular, storeSession,
+  errorText, isMissing, listArchives, parseSession, prepareRestore, readRegular, storeSession,
 } from "./storage.ts";
 
 // 名称和路径来自会话文件，不能把控制字符直接送进终端。
@@ -12,7 +13,7 @@ function label(text: string): string {
   return text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 }
 
-async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): Promise<void> {
+async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): Promise<ExtensionCommandContext> {
   const path = ctx.sessionManager.getSessionFile();
   let persisted = false;
   if (path) {
@@ -21,14 +22,16 @@ async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): P
   }
   if (archive && !persisted) {
     ctx.ui.notify("当前会话尚未落盘（空会话或 --no-session），没有可归档的文件。", "info");
-    return;
+    return ctx;
   }
   const action = archive ? "归档" : "永久删除";
   if (!await ctx.ui.confirm(`${action}当前会话？`,
-    `${label(ctx.sessionManager.getSessionName() || ctx.sessionManager.getSessionId())}\n${label(path || "内存会话")}\n` +
-    `操作后进入空白新会话。${archive ? "原会话将只在归档列表中出现。" : "删除不可撤销，不影响项目文件。"}\n请确认其他 Pi 进程没有同时打开此会话。`)) return;
+    `${label(ctx.sessionManager.getSessionName() || ctx.sessionManager.getSessionId())}\n工作区：${label(ctx.cwd)}\n${label(path || "内存会话")}\n` +
+    `操作后进入空白新会话。${archive ? "原会话将只在归档列表中出现。" : "删除不可撤销，不影响项目文件。"}\n请确认其他 Pi 进程没有同时打开此会话。`)) return ctx;
+  let active = ctx;
   const result = await ctx.newSession({
     withSession: async (fresh) => {
+      active = fresh;
       try {
         if (archive && path) {
           // 在旧运行时 shutdown 完成后读取，包含其他扩展最后追加的条目。
@@ -47,6 +50,71 @@ async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): P
     },
   });
   if (result.cancelled) ctx.ui.notify("切换被取消，原会话未删除或归档。", "info");
+  return active;
+}
+
+async function removeFromList(ctx: ExtensionCommandContext, archive: boolean, all: boolean): Promise<void> {
+  const action = archive ? "归档" : "删除";
+  while (true) {
+    const dir = ctx.sessionManager.getSessionDir();
+    let sessions = all ? await SessionManager.listAll(dir) : await SessionManager.list(ctx.cwd, dir);
+    if (all) {
+      sessions = [...new Map([...await SessionManager.listAll(), ...sessions]
+        .map((session) => [resolve(session.path), session])).values()];
+    } else {
+      sessions = sessions.filter((session) => resolve(session.cwd) === resolve(ctx.cwd));
+    }
+    sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+    const currentPath = ctx.sessionManager.getSessionFile();
+    const options = sessions.map((session, index) =>
+      `${index + 1}. ` + (all ? `工作区：${label(session.cwd || "未知工作区")} | ` : "") +
+      (currentPath && resolve(session.path) === resolve(currentPath) ? "[当前会话] " : "") +
+      `${label(session.name || session.firstMessage || session.id)} | ${session.modified.toISOString()} | ${label(session.id.slice(0, 8))}`);
+    const selected = await ctx.ui.select(
+      `${all ? "全部工作区" : "当前工作区"}会话（${sessions.length} 个，回车选择${action}，Esc 退出）`,
+      [...options, "退出列表"]);
+    if (selected === undefined) return;
+    const session = sessions[options.indexOf(selected)];
+    if (!session) return;
+    if (currentPath && resolve(session.path) === resolve(currentPath)) {
+      // 操作当前会话会替换运行时；继续列表必须使用新上下文。
+      ctx = await leaveAndRemove(ctx, archive);
+      continue;
+    }
+    try {
+      const original = readRegular(session.path);
+      const { header } = parseSession(original.toString("utf8"));
+      if (header.id !== session.id || resolve(header.cwd) !== resolve(session.cwd)) {
+        throw new Error("会话已被替换，请从刷新后的列表重新选择");
+      }
+      if (!await ctx.ui.confirm(`${archive ? "归档" : "永久删除"}此会话？`,
+        `${label(session.name || session.firstMessage || session.id)}\n工作区：${label(session.cwd)}\n${label(session.path)}\n` +
+        (archive ? "原会话将只在归档列表中出现，可通过 /s-restore 恢复。" : "删除不可撤销。") +
+        "不影响项目文件，当前会话保持不变。\n请确认其他 Pi 进程没有同时打开此会话。")) continue;
+      if (!readRegular(session.path).equals(original)) throw new Error(`会话已被其他进程修改，未${action}，请重新确认`);
+      if (archive) {
+        const stored = storeSession(session.path);
+        ctx.ui.notify(`会话已归档：${label(stored)}`, "info");
+      } else {
+        unlinkSync(session.path);
+        ctx.ui.notify("会话已删除。", "info");
+      }
+    } catch (error) {
+      ctx.ui.notify(`${action}未完成，返回列表：${label(errorText(error))}`, "error");
+    }
+  }
+}
+
+async function removeSession(ctx: ExtensionCommandContext, args: string, archive: boolean): Promise<void> {
+  const command = archive ? "s-store" : "s-delete";
+  const flags = args.trim().split(/\s+/).filter(Boolean)
+    .map((flag) => flag === "-l" ? "-ls" : flag.replace(/^--/, "-"));
+  if (flags.some((flag) => flag !== "-ls" && flag !== "-all") || (flags.length > 0 && !flags.includes("-ls"))) {
+    ctx.ui.notify(`用法：/${command} 或 /${command} -ls [-all]（-l、--ls 等价于 -ls；也支持 --all）`, "warning");
+    return;
+  }
+  if (flags.includes("-ls")) await removeFromList(ctx, archive, flags.includes("-all"));
+  else await leaveAndRemove(ctx, archive);
 }
 
 async function restoreSession(ctx: ExtensionCommandContext, all: boolean): Promise<void> {
@@ -89,26 +157,35 @@ async function restoreSession(ctx: ExtensionCommandContext, all: boolean): Promi
 
 export default function sessionManagerExtension(pi: ExtensionAPI): void {
   let running = false;
-  const register = (name: string, description: string, run: (ctx: ExtensionCommandContext) => Promise<void>) => {
+  const register = (name: string, description: string, run: (ctx: ExtensionCommandContext, args: string) => Promise<void>) => {
     pi.registerCommand(name, {
       description,
       handler: async (args, ctx) => {
-        if (args.trim()) { ctx.ui.notify(`用法：/${name}（不接受参数）`, "warning"); return; }
+        if (args.trim() && name === "s-new-continue") {
+          ctx.ui.notify(`用法：/${name}（不接受参数）`, "warning");
+          return;
+        }
         if (!ctx.hasUI) throw new Error(`/${name} 需要交互界面`);
         if (running || !ctx.isIdle() || ctx.hasPendingMessages()) {
           ctx.ui.notify("请等待当前任务和消息队列结束，或先按 Esc 停止，再执行会话命令。", "warning");
           return;
         }
         running = true;
-        try { await run(ctx); }
+        try { await run(ctx, args); }
         finally { running = false; }
         // 错误交由 Pi 命令调度器显示；切换后不能再用失效的旧 ctx 报错。
       },
     });
   };
-  register("s-delete", "确认后删除当前会话，并进入空白新会话", (ctx) => leaveAndRemove(ctx, false));
+  register("s-delete", "确认删除当前会话；-ls 列表删除，-ls -all 显示全部工作区", (ctx, args) => removeSession(ctx, args, false));
   register("s-new-continue", "新建会话并接手未完成任务，空会话自动回溯", continueSession);
-  register("s-store", "无损压缩归档当前会话，并从普通会话列表移除", (ctx) => leaveAndRemove(ctx, true));
-  register("s-restore", "选择并恢复当前工作区的归档会话", (ctx) => restoreSession(ctx, false));
-  register("s-restore-all", "选择并恢复全部工作区的归档会话", (ctx) => restoreSession(ctx, true));
+  register("s-store", "无损归档当前会话；-ls 列表归档，-ls -all 显示全部工作区", (ctx, args) => removeSession(ctx, args, true));
+  register("s-restore", "选择恢复当前工作区归档；-all 显示全部工作区", async (ctx, args) => {
+    const flag = args.trim();
+    if (flag && flag !== "-all" && flag !== "--all") {
+      ctx.ui.notify("用法：/s-restore [-all]（也支持 --all）", "warning");
+      return;
+    }
+    await restoreSession(ctx, flag !== "");
+  });
 }
