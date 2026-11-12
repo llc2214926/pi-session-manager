@@ -59,7 +59,7 @@ Instead of `pi install`, **merge** this entry into the `extensions` array of `~/
 
 You can also merge it into the workspace's `.pi/settings.json`; it then applies only to that workspace and requires project-resource trust. The example uses an absolute path. Relative paths resolve from the directory containing the corresponding `settings.json`. Reload or restart after registration.
 
-Choose one persistent loading method. Loading a GitHub installation, a local copy, and a manually registered copy together can cause command conflicts. `src/index.ts` depends on `handoff.ts` and `storage.ts` in the same directory; do not copy only the entry file.
+Choose one persistent loading method. Loading a GitHub installation, a local copy, and a manually registered copy together can cause command conflicts. `src/index.ts` depends on `handoff.ts`, `storage.ts`, and `session-picker.ts` in the same directory; do not copy only the entry file.
 
 ### 4. Temporary loading and troubleshooting
 
@@ -139,6 +139,8 @@ Context-file discovery does not require project-resource trust and can be disabl
 
 Restore lists show the session name (or ID if unnamed), archive time, and ID, newest archives first. Press Esc in selection or confirmation dialogs to cancel. Restoration does not delete the previously open session.
 
+Deletion, archive, and restore lists share a height-aware scrolling picker in the TUI, showing at most 12 items at once. Up/down or `j` / `k` keeps the selection visible, including after terminal resizing. Mouse-enabled fullscreen mode also supports the wheel. Long entries are truncated to fit; confirmation dialogs show the full session details. RPC clients continue to use standard selection dialogs.
+
 ### Deleting and archiving from a list
 
 `/s-delete` and `/s-store` share argument parsing, session selection, and confirmation logic. Only the final operation differs: deletion is irreversible; archiving losslessly compresses and verifies the session before removing the original file, and `/s-restore` can restore it.
@@ -147,7 +149,7 @@ Restore lists show the session name (or ID if unnamed), archive time, and ID, ne
 - Sessions are sorted by last modification time and show a name (or first message/ID), time, and ID. The current session is marked. Only persisted ordinary sessions are listed, not archives or unsaved blank/in-memory sessions.
 - The current-workspace list reads the current session directory and filters by workspace path. The all-workspace list merges the current agent directory's default session library with the current session directory (including a custom `--session-dir`), deduplicating file paths. It does not search arbitrary custom directories elsewhere on disk or other agent directories.
 - Deleting or archiving another session does not switch your workspace or current session. Operating on the entry marked as current first opens a blank session in the same workspace, deletes or archives the old file, and continues the list using the fresh runtime.
-- Cancelling confirmation, successful operations, and file-operation failures return to the refreshed list. Even an empty list retains its exit option. Press Esc in the list or select “退出列表” to leave.
+- Cancelling confirmation, successful operations, and file-operation failures return to the refreshed list. In the TUI, the original session stays selected if it still exists, even after reordering. Successful removal keeps the same list position; removing the last item selects the last remaining session. An empty list shows zero sessions and only “退出列表”, without creating or operating on another session. Press Esc or select “退出列表” to leave.
 - Each confirmation identifies the session, full workspace/file paths, and the effect of deletion or archiving. Changes to a non-current session during confirmation prevent the operation. Do not operate on a session still open in another Pi process.
 
 ### Empty-session fallback and handoff

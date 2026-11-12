@@ -4,6 +4,7 @@ import {
   SessionManager, type ExtensionAPI, type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { continueSession } from "./handoff.ts";
+import { selectSession } from "./session-picker.ts";
 import {
   errorText, isMissing, listArchives, parseSession, prepareRestore, readRegular, storeSession,
 } from "./storage.ts";
@@ -55,6 +56,8 @@ async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): P
 
 async function removeFromList(ctx: ExtensionCommandContext, archive: boolean, all: boolean): Promise<void> {
   const action = archive ? "归档" : "删除";
+  let selectedIndex = 0;
+  let selectedPath: string | undefined;
   while (true) {
     const dir = ctx.sessionManager.getSessionDir();
     let sessions = all ? await SessionManager.listAll(dir) : await SessionManager.list(ctx.cwd, dir);
@@ -65,17 +68,22 @@ async function removeFromList(ctx: ExtensionCommandContext, archive: boolean, al
       sessions = sessions.filter((session) => resolve(session.cwd) === resolve(ctx.cwd));
     }
     sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+    // 原会话还在时按路径定位；已移除时沿用原序号，末项回退，空列表选退出。
+    const previousIndex = sessions.findIndex((session) => session.path === selectedPath);
+    selectedIndex = previousIndex >= 0 ? previousIndex : Math.min(selectedIndex, Math.max(0, sessions.length - 1));
     const currentPath = ctx.sessionManager.getSessionFile();
     const options = sessions.map((session, index) =>
       `${index + 1}. ` + (all ? `工作区：${label(session.cwd || "未知工作区")} | ` : "") +
       (currentPath && resolve(session.path) === resolve(currentPath) ? "[当前会话] " : "") +
       `${label(session.name || session.firstMessage || session.id)} | ${session.modified.toISOString()} | ${label(session.id.slice(0, 8))}`);
-    const selected = await ctx.ui.select(
-      `${all ? "全部工作区" : "当前工作区"}会话（${sessions.length} 个，回车选择${action}，Esc 退出）`,
-      [...options, "退出列表"]);
+    const selected = await selectSession(ctx,
+      `${all ? "全部工作区" : "当前工作区"}会话（${sessions.length} 个，${sessions.length ? `回车选择${action}` : `暂无可${action}会话`}，Esc 退出）`,
+      [...options, "退出列表"], selectedIndex);
     if (selected === undefined) return;
-    const session = sessions[options.indexOf(selected)];
+    selectedIndex = options.indexOf(selected);
+    const session = sessions[selectedIndex];
     if (!session) return;
+    selectedPath = session.path;
     if (currentPath && resolve(session.path) === resolve(currentPath)) {
       // 操作当前会话会替换运行时；继续列表必须使用新上下文。
       ctx = await leaveAndRemove(ctx, archive);
@@ -127,7 +135,7 @@ async function restoreSession(ctx: ExtensionCommandContext, all: boolean): Promi
   const options = archives.map((entry, index) =>
     `${index + 1}. ${entry.archivedAt} | ${label(entry.name)} | ${label(entry.header.id.slice(0, 8))}` +
     (all ? ` | 工作区：${label(entry.header.cwd)}` : ""));
-  const selected = await ctx.ui.select(all ? "全部工作区归档（选择后恢复并切换）" : "当前工作区归档（选择后恢复并切换）", options);
+  const selected = await selectSession(ctx, all ? "全部工作区归档（选择后恢复并切换）" : "当前工作区归档（选择后恢复并切换）", options);
   if (selected === undefined) return;
   const archive = archives[options.indexOf(selected)];
   if (!archive) return;
