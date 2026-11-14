@@ -1,9 +1,9 @@
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import {
   BorderedLoader, convertToLlm, serializeConversation, SessionManager,
   type ExtensionCommandContext, type SessionHeader, type SessionProjection,
 } from "@earendil-works/pi-coding-agent";
-import { errorText, parseSession, readRegular } from "./storage.ts";
+import { errorText, label, parseSession, readRegular } from "./storage.ts";
 
 type Messages = SessionProjection["messages"];
 interface Source {
@@ -15,7 +15,7 @@ interface Source {
 export function hasConversation(messages: Messages): boolean {
   return messages.some((message) => {
     if (message.role === "compactionSummary" || message.role === "branchSummary") return !!message.summary.trim();
-    if (message.role !== "user" && message.role !== "assistant") return false;
+    if (message.role !== "user" && message.role !== "assistant" && message.role !== "custom") return false;
     if (typeof message.content === "string") return !!message.content.trim();
     return message.content.some((part) =>
       part.type === "image" || part.type === "toolCall" || (part.type === "text" && !!part.text.trim()));
@@ -36,9 +36,14 @@ export async function findSource(ctx: ExtensionCommandContext): Promise<Source |
   const visited = new Set<string>(source.path ? [resolve(source.path)] : []);
   while (!hasConversation(source.messages)) {
     const parent = source.header.parentSession;
+    const parentPath = typeof parent === "string" && isAbsolute(parent) && !parent.includes("\0")
+      ? resolve(parent) : undefined;
+    if (parent !== undefined && !parentPath) {
+      ctx.ui.notify("父会话路径无效，改为按创建时间查找历史会话。", "warning");
+    }
     const previous = sessions.find((session) =>
       session.created.getTime() <= Date.parse(source.header.timestamp) && !visited.has(resolve(session.path)));
-    const path = parent && !visited.has(resolve(parent)) ? resolve(parent) : previous?.path;
+    const path = parentPath && !visited.has(parentPath) ? parentPath : previous?.path;
     if (!path) return undefined;
     visited.add(resolve(path));
     try {
@@ -47,7 +52,7 @@ export async function findSource(ctx: ExtensionCommandContext): Promise<Source |
       const manager = SessionManager.inMemory(ctx.cwd, undefined, parsed.entries);
       source = { path, header: parsed.header, messages: manager.buildSessionProjection().messages };
     } catch (error) {
-      ctx.ui.notify(`跳过无法读取的历史会话 ${path}：${errorText(error)}`, "warning");
+      ctx.ui.notify(`跳过无法读取的历史会话 ${label(path)}：${errorText(error)}`, "warning");
     }
   }
   return source;

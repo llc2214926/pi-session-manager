@@ -1,4 +1,4 @@
-import { unlinkSync } from "node:fs";
+import { lstatSync, realpathSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   SessionManager, type ExtensionAPI, type ExtensionCommandContext,
@@ -6,12 +6,17 @@ import {
 import { continueSession } from "./handoff.ts";
 import { selectSession } from "./session-picker.ts";
 import {
-  errorText, isMissing, listArchives, parseSession, prepareRestore, readRegular, storeSession,
+  errorText, isMissing, label, listArchives, parseSession, prepareRestore, readRegular, storeSession,
 } from "./storage.ts";
 
-// 名称和路径来自会话文件，不能把控制字符直接送进终端。
-function label(text: string): string {
-  return text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+function sessionPathKey(path: string): string {
+  try {
+    // 解析目录别名；文件本身的符号链接保留原路径，交给 readRegular 拒绝。
+    return lstatSync(path).isSymbolicLink() ? resolve(path) : realpathSync(path);
+  } catch (error) {
+    if (!isMissing(error)) throw error;
+    return resolve(path); // 列表刷新期间文件可能已消失，后续读取会安全报错。
+  }
 }
 
 async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): Promise<ExtensionCommandContext> {
@@ -37,7 +42,7 @@ async function leaveAndRemove(ctx: ExtensionCommandContext, archive: boolean): P
         if (archive && path) {
           // 在旧运行时 shutdown 完成后读取，包含其他扩展最后追加的条目。
           const stored = storeSession(path);
-          fresh.ui.notify(`会话已归档：${stored}`, "info");
+          fresh.ui.notify(`会话已归档：${label(stored)}`, "info");
         } else {
           if (path) {
             try { readRegular(path); unlinkSync(path); }
@@ -63,18 +68,19 @@ async function removeFromList(ctx: ExtensionCommandContext, archive: boolean, al
     let sessions = all ? await SessionManager.listAll(dir) : await SessionManager.list(ctx.cwd, dir);
     if (all) {
       sessions = [...new Map([...await SessionManager.listAll(), ...sessions]
-        .map((session) => [resolve(session.path), session])).values()];
+        .map((session) => [sessionPathKey(session.path), session])).values()];
     } else {
       sessions = sessions.filter((session) => resolve(session.cwd) === resolve(ctx.cwd));
     }
     sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
     // 原会话还在时按路径定位；已移除时沿用原序号，末项回退，空列表选退出。
-    const previousIndex = sessions.findIndex((session) => session.path === selectedPath);
+    const previousIndex = sessions.findIndex((session) => sessionPathKey(session.path) === selectedPath);
     selectedIndex = previousIndex >= 0 ? previousIndex : Math.min(selectedIndex, Math.max(0, sessions.length - 1));
     const currentPath = ctx.sessionManager.getSessionFile();
+    const currentKey = currentPath && sessionPathKey(currentPath);
     const options = sessions.map((session, index) =>
       `${index + 1}. ` + (all ? `工作区：${label(session.cwd || "未知工作区")} | ` : "") +
-      (currentPath && resolve(session.path) === resolve(currentPath) ? "[当前会话] " : "") +
+      (currentKey && sessionPathKey(session.path) === currentKey ? "[当前会话] " : "") +
       `${label(session.name || session.firstMessage || session.id)} | ${session.modified.toISOString()} | ${label(session.id.slice(0, 8))}`);
     const selected = await selectSession(ctx,
       `${all ? "全部工作区" : "当前工作区"}会话（${sessions.length} 个，${sessions.length ? `回车选择${action}` : `暂无可${action}会话`}，Esc 退出）`,
@@ -83,8 +89,8 @@ async function removeFromList(ctx: ExtensionCommandContext, archive: boolean, al
     selectedIndex = options.indexOf(selected);
     const session = sessions[selectedIndex];
     if (!session) return;
-    selectedPath = session.path;
-    if (currentPath && resolve(session.path) === resolve(currentPath)) {
+    selectedPath = sessionPathKey(session.path);
+    if (currentKey && selectedPath === currentKey) {
       // 操作当前会话会替换运行时；继续列表必须使用新上下文。
       ctx = await leaveAndRemove(ctx, archive);
       continue;
@@ -126,14 +132,14 @@ async function removeSession(ctx: ExtensionCommandContext, args: string, archive
 }
 
 async function restoreSession(ctx: ExtensionCommandContext, all: boolean): Promise<void> {
-  const { archives, errors } = listArchives(all ? undefined : ctx.cwd);
+  const { archives, errors } = await listArchives(all ? undefined : ctx.cwd);
   if (errors.length) ctx.ui.notify(`以下归档读取失败，已保留原包：\n${errors.map(label).join("\n")}`, "warning");
   if (!archives.length) {
     ctx.ui.notify(all ? "没有可恢复的归档。" : "当前工作区没有可恢复的归档。", "info");
     return;
   }
   const options = archives.map((entry, index) =>
-    `${index + 1}. ${entry.archivedAt} | ${label(entry.name)} | ${label(entry.header.id.slice(0, 8))}` +
+    `${index + 1}. ${label(entry.archivedAt)} | ${label(entry.name)} | ${label(entry.header.id.slice(0, 8))}` +
     (all ? ` | 工作区：${label(entry.header.cwd)}` : ""));
   const selected = await selectSession(ctx, all ? "全部工作区归档（选择后恢复并切换）" : "当前工作区归档（选择后恢复并切换）", options);
   if (selected === undefined) return;
@@ -180,6 +186,7 @@ export default function sessionManagerExtension(pi: ExtensionAPI): void {
         }
         running = true;
         try { await run(ctx, args); }
+        catch (error) { throw new Error(errorText(error)); }
         finally { running = false; }
         // 错误交由 Pi 命令调度器显示；切换后不能再用失效的旧 ctx 报错。
       },
